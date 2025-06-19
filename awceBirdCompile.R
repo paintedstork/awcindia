@@ -7,7 +7,7 @@ library(stringr)
 source("config.R")
 
 # Toggle this to avoid unzipping the file again & again. Saves time.
-unzipebd <- 1
+unzipebd <- 0
 unzipmyebd <- 0
 
 
@@ -113,7 +113,10 @@ ebd <- read.delim(paste0(inputdir, ebdfilename,".txt"),
                   header = T, 
                   quote = "", 
                   stringsAsFactors = F, 
-                  na.strings = c ("", " ",NA)) 
+                  na.strings = c ("", " ",NA)) %>%
+                  mutate (GROUP.ID = ifelse (is.na(GROUP.IDENTIFIER), 
+                             SAMPLING.EVENT.IDENTIFIER, GROUP.IDENTIFIER)) 
+  
 
 # Records still in the review queue
 ebd_unvetted <- read.delim(paste0(inputdir, ebdfilename,"_unvetted.txt"),
@@ -123,7 +126,9 @@ ebd_unvetted <- read.delim(paste0(inputdir, ebdfilename,"_unvetted.txt"),
                            header = T, 
                            quote = "", 
                            stringsAsFactors = F, 
-                           na.strings = c ("", " ",NA)) 
+                           na.strings = c ("", " ",NA)) %>%
+                  mutate (GROUP.ID = ifelse (is.na(GROUP.IDENTIFIER), 
+                                             SAMPLING.EVENT.IDENTIFIER, GROUP.IDENTIFIER)) 
 
 stateTable <- ebd %>% distinct(STATE, STATE.CODE)
 
@@ -135,8 +140,6 @@ stateTable <- ebd %>% distinct(STATE, STATE.CODE)
 form_plus_ebd <-  inner_join(form_awc, ebd, 
                            by = c("ChecklistID" = "SAMPLING.EVENT.IDENTIFIER"), 
                            relationship = 'many-to-many') %>%
-                           mutate (GROUP.ID = ifelse (is.na(GROUP.IDENTIFIER), 
-                                                      ChecklistID, GROUP.IDENTIFIER)) %>%
                            mutate(OBSERVATION.COUNT = case_when(
                             OBSERVATION.COUNT == "X" ~ 1,
                             TRUE ~ as.numeric(OBSERVATION.COUNT)
@@ -177,8 +180,7 @@ bad_checklists <- anti_join(form_awc, ebd,
 
 MyEbddata_plus_ebd <- inner_join(myEbdData_year, ebd, 
                                           by = c("Submission ID" = "SAMPLING.EVENT.IDENTIFIER",
-                                                "Taxonomic Order" = "TAXONOMIC.ORDER")) %>% 
-                      mutate (GROUP.ID = ifelse (is.na(GROUP.IDENTIFIER), ChecklistID, GROUP.IDENTIFIER))
+                                                "Taxonomic Order" = "TAXONOMIC.ORDER")) 
 
 # Step 2a: Some checklists are completely missing in eBird. Mostly its because the checklist is hidden due to problems.
 # Note: This is not there in the figure.
@@ -200,30 +202,32 @@ full_data_set  <- inner_join (MyEbddata_plus_ebd,
 # Step 3a: Anti join the two joined datasets - combining form, ebd and MyEbirdData using GROUP.ID
 # This will give missing lists in forms while being present in MyEbirData
 missing_checklists  <- anti_join (MyEbddata_plus_ebd %>% distinct(GROUP.ID, .keep_all = TRUE), 
-                               form_plus_ebd %>% distinct(GROUP.ID, .keep_all = TRUE), 
+                                  form_plus_ebd %>% distinct(GROUP.ID, .keep_all = TRUE), 
                                       by = c("GROUP.ID" = "GROUP.ID")) %>%
                                         distinct(GROUP.ID, .keep_all = TRUE) 
 
-#missing_records  <- anti_join (MyEbddata_plus_ebd, 
-#                               form_plus_ebd, 
-#                               by = c("GROUP.ID" = "GROUP.ID",
-#                                      "Taxonomic Order" = "TAXONOMIC.ORDER")) %>% 
-#                               anti_join(# remove rows whose GROUP.ID is in missing_lists
-#                                        missing_lists %>% distinct(GROUP.ID),
-#                                        by = "GROUP.ID"
-#                                      )
-
+missing_records  <- anti_join (myEbdData_year, 
+                                    ebd, 
+                                      by = c("Submission ID" = "SAMPLING.EVENT.IDENTIFIER",
+                                              "Taxonomic Order" = "TAXONOMIC.ORDER")) %>% 
+                                      anti_join(# remove rows there in problemChecklists
+                                        problemChecklists,
+                                        by = "Submission ID"
+                                      ) %>% anti_join(# remove rows that are in missing_checklists
+                                        missing_checklists,
+                                        by = "Submission ID"
+                                      )
 
 # Steps 3a and 3b are combined in the presentation. 
 # Step 3a: If the missing records are in unvetted file, then they need to be reviewed.
-#unreviewed_records <- inner_join (MyEbddata_plus_ebd, ebd_unvetted, 
-#                                                  by = c("Submission ID" = "SAMPLING.EVENT.IDENTIFIER",
-#                                                           "Taxonomic Order" = "TAXONOMIC.ORDER"))
+unreviewed_records <- inner_join (missing_records, ebd_unvetted, 
+                                                  by = c(`Submission ID` = "SAMPLING.EVENT.IDENTIFIER",
+                                                           "Taxonomic Order" = "TAXONOMIC.ORDER"))
 
 # Step 3b: If the missing records are not in unvetted file, then they have been unconfirmed by reviewers
-#unconfirmed_records <- anti_join (missing_records, ebd_unvetted, 
-#                                                  by = c("Submission ID" = "SAMPLING.EVENT.IDENTIFIER",
-#                                                  "Taxonomic Order" = "TAXONOMIC.ORDER"))
+unconfirmed_records <- anti_join (missing_records, ebd_unvetted, 
+                                                  by = c(`Submission ID` = "SAMPLING.EVENT.IDENTIFIER",
+                                                         "Taxonomic Order" = "TAXONOMIC.ORDER"))
 
 
 ###############WRITING OUTPUTS##########################
@@ -348,6 +352,48 @@ f_missing_checklists <- missing_checklists %>%
          DateInEbird = OBSERVATION.DATE,
          Duration = `Duration (Min)`)
 
+
+f_unreviewed_records <- unreviewed_records %>%
+    select (COMMON.NAME, 
+            SCIENTIFIC.NAME,
+            SUBSPECIES.SCIENTIFIC.NAME,
+            OBSERVATION.COUNT,
+            OBSERVATION.DATE,
+            LOCALITY,
+            COUNTY, 
+            STATE,
+            `Submission ID`) %>% 
+    rename(List = `Submission ID`,
+             CommonName = COMMON.NAME,
+             ScientificName = SCIENTIFIC.NAME,
+             SubspeciesScientificName = SUBSPECIES.SCIENTIFIC.NAME,
+             Count = OBSERVATION.COUNT,
+             State = STATE,
+             District = COUNTY,
+             LocalityInEbird = LOCALITY,
+             DateInEbird = OBSERVATION.DATE
+             )
+
+
+f_unconfirmed_records <- unconfirmed_records %>%
+  select (`Common Name`, 
+          `Scientific Name`,
+          Count,
+          Date,
+          Location,
+          County, 
+          `State/Province`,
+          `Submission ID`) %>% 
+  rename(List = `Submission ID`,
+         CommonName = `Common Name`,
+         ScientificName = `Scientific Name`,
+         Count = Count,
+         State = `State/Province`,
+         District = County,
+         LocalityInEbird = Location,
+         DateInEbird = Date
+  )
+
 # Loop through each state and write Excel
 for (state in states) {
   
@@ -389,6 +435,13 @@ for (state in states) {
     df_problemChecklists <- tibble()
   }
   
+  df_unreviewed_records <- f_unreviewed_records %>%
+    filter(State == state)
+  
+    
+  df_unconfirmed_records <- f_unconfirmed_records %>%
+    filter(State %in% state_code)
+
   # File name
   outfile <- paste0(outputdir, "output_", startYear, "-", endYear, "-", gsub("\\s+", "_", state), ".xlsx")
   
@@ -399,7 +452,7 @@ for (state in states) {
   
   # Define sheet names and descriptions
   sheet_info <- tibble::tibble(
-    SheetName = c("Valid_Visit Summary", "Valid_CountSummary", "Valid_FullData", "Error_ListswithNoFormEntry", "Error_BadListInGoogleForm", "Error_NotAwcLists", "Error_ListsWithIssues"),
+    SheetName = c("Valid_Visit Summary", "Valid_CountSummary", "Valid_FullData", "Error_ListswithNoFormEntry", "Error_BadListInGoogleForm", "Error_NotAwcLists", "Error_ListsWithIssues", "Pend_Unreviewed", "Error_Unconfirmed"),
     Description = c(
       "Summary of AWC visits",
       "Summary of AWC counts",
@@ -407,7 +460,9 @@ for (state in states) {
       "eBird checklists shared with awcindia that do not have any corresponding google form entry.",
       "Checklists provided by the submitter in the Google Form is not a valid link or valid checklist.",
       "Checklists submitted to the form are outside the December to Febuary period of AWC.",
-      "Checklists flagged with issues like too long a list, duplicate entry or other issues by the editors of eBird and hence missing in data download."
+      "Checklists flagged with issues like too long a list, duplicate entry or other issues by the editors of eBird and hence missing in data download.",
+      "Records that has not been reviewed by eBird editors. AWC state coordinators may need to nudge them",
+      "Records that has been unconfirmed by eBird editors. These are essentially AWC reocrds that are rejected due to data quality issues"
     )
   )
   
@@ -503,6 +558,14 @@ for (state in states) {
   addWorksheet(wb, "Error_ListsWithIssues")
   writeData(wb, "Error_ListsWithIssues", df_problemChecklists)
   setColWidths(wb, "Error_ListsWithIssues", cols = 1:ncol(df_problemChecklists), widths = "auto")
+
+  addWorksheet(wb, "Pend_Unreviewed")
+  writeData(wb, "Pend_Unreviewed", df_unreviewed_records)
+  setColWidths(wb, "Pend_Unreviewed", cols = 1:ncol(df_unreviewed_records), widths = "auto")
+  
+  addWorksheet(wb, "Error_Unconfirmed")
+  writeData(wb, "Error_Unconfirmed", df_unconfirmed_records)
+  setColWidths(wb, "Error_Unconfirmed", cols = 1:ncol(df_unconfirmed_records), widths = "auto")
   
   # Save workbook
   saveWorkbook(wb, outfile, overwrite = TRUE)
