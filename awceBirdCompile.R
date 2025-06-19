@@ -1,3 +1,4 @@
+############################Scripts to merge eBird data from AWC and AWC forms#####################
 library(lubridate)
 library(tidyverse)
 library(readxl)
