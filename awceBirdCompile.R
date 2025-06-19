@@ -7,8 +7,8 @@ library(stringr)
 source("config.R")
 
 # Toggle this to avoid unzipping the file again & again. Saves time.
-unzipebd <- 0
-unzipmyebd <- 0
+unzipebd <- 1
+unzipmyebd <- 1
 
 
 #################Google Form Preprocessing###################################
@@ -29,7 +29,7 @@ form_not_awc <- form %>% filter(!(Month %in% awc_months))
 ################My Ebird File Preprocessing#################################
 if (unzipmyebd)
 {
-  unzip(paste0(inputdir,myEbdFile, exdir = inputdir))
+  unzip(paste0(inputdir, myEbdFile), exdir = inputdir)
 }
 
 myEbdData <- readxl::read_excel(paste0(inputdir, "MyEBirdData.xlsx"))
@@ -39,7 +39,6 @@ myEbdData$Year <- as.numeric(format(as.Date(myEbdData$Date), "%Y"))
 myEbdData$Month <- as.numeric(format(as.Date(myEbdData$Date), "%m"))
 
 # Take data from only AWC months
-# Months are a bit hard-coded right now. Can change later.
 myEbdData_year <- myEbdData %>%
                     filter(
                       (Month %in% awc_2nd_half_months & Year == startYear) |
@@ -135,7 +134,7 @@ stateTable <- ebd %>% distinct(STATE, STATE.CODE)
 ################JOIN steps starts####################################################
 # See https://docs.google.com/presentation/d/1Jp1L8LCcbgBAFAwEnDTpLspffVpwFUSSvpPS9ebE1aU
 
-# Step 1: Join eBird Dataset with AWC form and add a new field called GROUP.ID
+# Step 1: Join eBird Dataset with AWC form
 
 form_plus_ebd <-  inner_join(form_awc, ebd, 
                            by = c("ChecklistID" = "SAMPLING.EVENT.IDENTIFIER"), 
@@ -191,13 +190,7 @@ problemChecklists <-  anti_join(myEbdData_year, ebd,
                                   distinct_all()
   
 
-# Step 3: Join two datasets - combining form, ebd and MyEbirdData using GROUP.ID
-full_data_set  <- inner_join (MyEbddata_plus_ebd, 
-                             form_plus_ebd, 
-                             by = c("GROUP.ID" = "GROUP.ID",
-                                    "Taxonomic Order" = "TAXONOMIC.ORDER"))
-
-
+# Steps 3 - finding missing things
 
 # Step 3a: Anti join the two joined datasets - combining form, ebd and MyEbirdData using GROUP.ID
 # This will give missing lists in forms while being present in MyEbirData
@@ -206,6 +199,7 @@ missing_checklists  <- anti_join (MyEbddata_plus_ebd %>% distinct(GROUP.ID, .kee
                                       by = c("GROUP.ID" = "GROUP.ID")) %>%
                                         distinct(GROUP.ID, .keep_all = TRUE) 
 
+# Step 3b: Anti join the two joined datasets to find the missing records - but remove records from problem & missing checklists as they are anyway handled differently
 missing_records  <- anti_join (myEbdData_year, 
                                     ebd, 
                                       by = c("Submission ID" = "SAMPLING.EVENT.IDENTIFIER",
@@ -218,13 +212,12 @@ missing_records  <- anti_join (myEbdData_year,
                                         by = "Submission ID"
                                       )
 
-# Steps 3a and 3b are combined in the presentation. 
-# Step 3a: If the missing records are in unvetted file, then they need to be reviewed.
+# Step 3c: If the missing records are in unvetted file, then they need to be reviewed.
 unreviewed_records <- inner_join (missing_records, ebd_unvetted, 
                                                   by = c(`Submission ID` = "SAMPLING.EVENT.IDENTIFIER",
                                                            "Taxonomic Order" = "TAXONOMIC.ORDER"))
 
-# Step 3b: If the missing records are not in unvetted file, then they have been unconfirmed by reviewers
+# Step 3d: If the missing records are not in unvetted file, then they have been unconfirmed by reviewers
 unconfirmed_records <- anti_join (missing_records, ebd_unvetted, 
                                                   by = c(`Submission ID` = "SAMPLING.EVENT.IDENTIFIER",
                                                          "Taxonomic Order" = "TAXONOMIC.ORDER"))
@@ -232,7 +225,6 @@ unconfirmed_records <- anti_join (missing_records, ebd_unvetted,
 
 ###############WRITING OUTPUTS##########################
 
-years <- unique(sort(form_awc$Year))
 states <- unique(sort(MyEbddata_plus_ebd$STATE))
 
 # Format all the dataframes that need to be written
@@ -318,8 +310,12 @@ f_visit_summary <- visit_summary %>%
              List = `Link to your eBird List`)
 
 # Format: problem checklists
-f_problemChecklists <- problemChecklists
-colnames(f_problemChecklists) <- c("List", "District", "Locality", "State", "Date")
+f_problemChecklists <- problemChecklists %>% 
+                  rename(District = County,
+                         Locality = Location,
+                         Date = Date,
+                         State = `State/Province`,
+                         List = `Submission ID`)
 
 # Format: bad checklists
 f_bad_checklists <- bad_checklists %>%
@@ -456,7 +452,7 @@ for (state in states) {
     Description = c(
       "Summary of AWC visits",
       "Summary of AWC counts",
-      "All date of checklists from eBird matched with form submissions. Review for accuracy and completeness.",
+      "All data of checklists from eBird matched with form submissions. Review for accuracy and completeness.",
       "eBird checklists shared with awcindia that do not have any corresponding google form entry.",
       "Checklists provided by the submitter in the Google Form is not a valid link or valid checklist.",
       "Checklists submitted to the form are outside the December to Febuary period of AWC.",
