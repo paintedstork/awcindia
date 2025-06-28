@@ -8,7 +8,6 @@ source("config.R")
 
 # Toggle this to avoid unzipping the file again & again. Saves time.
 unzipebd <- 1
-unzipmyebd <- 1
 
 
 #################Google Form Preprocessing###################################
@@ -27,12 +26,8 @@ form_not_awc <- form %>% filter(!(Month %in% awc_months))
 
 
 ################My Ebird File Preprocessing#################################
-if (unzipmyebd)
-{
-  unzip(paste0(inputdir, myEbdFile), exdir = inputdir)
-}
 
-myEbdData <- readxl::read_excel(paste0(inputdir, "MyEBirdData.xlsx"))
+myEbdData <- read.csv(paste0(inputdir, "MyEBirdData.csv"))
 
 # Add Month & Year
 myEbdData$Year <- as.numeric(format(as.Date(myEbdData$Date), "%Y"))
@@ -178,15 +173,15 @@ bad_checklists <- anti_join(form_awc, ebd,
 # Step 2: Join eBird Dataset with MyEbirdData and add a new field called GROUP.ID
 
 MyEbddata_plus_ebd <- inner_join(myEbdData_year, ebd, 
-                                          by = c("Submission ID" = "SAMPLING.EVENT.IDENTIFIER",
-                                                "Taxonomic Order" = "TAXONOMIC.ORDER")) 
+                                          by = c("Submission.ID" = "SAMPLING.EVENT.IDENTIFIER",
+                                                "Taxonomic.Order" = "TAXONOMIC.ORDER")) 
 
 # Step 2a: Some checklists are completely missing in eBird. Mostly its because the checklist is hidden due to problems.
 # Note: This is not there in the figure.
 problemChecklists <-  anti_join(myEbdData_year, ebd, 
-                                by = c("Submission ID" = "SAMPLING.EVENT.IDENTIFIER")) %>%
-                                  anti_join (ebd_unvetted, by = c("Submission ID" = "SAMPLING.EVENT.IDENTIFIER")) %>%
-                                  select (`Submission ID`, County, Location, `State/Province`, Date) %>%
+                                by = c("Submission.ID" = "SAMPLING.EVENT.IDENTIFIER")) %>%
+                                  anti_join (ebd_unvetted, by = c("Submission.ID" = "SAMPLING.EVENT.IDENTIFIER")) %>%
+                                  select (`Submission.ID`, County, Location, `State.Province`, Date) %>%
                                   distinct_all()
   
 
@@ -202,25 +197,25 @@ missing_checklists  <- anti_join (MyEbddata_plus_ebd %>% distinct(GROUP.ID, .kee
 # Step 3b: Anti join the two joined datasets to find the missing records - but remove records from problem & missing checklists as they are anyway handled differently
 missing_records  <- anti_join (myEbdData_year, 
                                     ebd, 
-                                      by = c("Submission ID" = "SAMPLING.EVENT.IDENTIFIER",
-                                              "Taxonomic Order" = "TAXONOMIC.ORDER")) %>% 
+                                      by = c("Submission.ID" = "SAMPLING.EVENT.IDENTIFIER",
+                                              "Taxonomic.Order" = "TAXONOMIC.ORDER")) %>% 
                                       anti_join(# remove rows there in problemChecklists
                                         problemChecklists,
-                                        by = "Submission ID"
+                                        by = "Submission.ID"
                                       ) %>% anti_join(# remove rows that are in missing_checklists
                                         missing_checklists,
-                                        by = "Submission ID"
+                                        by = "Submission.ID"
                                       )
 
 # Step 3c: If the missing records are in unvetted file, then they need to be reviewed.
 unreviewed_records <- inner_join (missing_records, ebd_unvetted, 
-                                                  by = c(`Submission ID` = "SAMPLING.EVENT.IDENTIFIER",
-                                                           "Taxonomic Order" = "TAXONOMIC.ORDER"))
+                                                  by = c(`Submission.ID` = "SAMPLING.EVENT.IDENTIFIER",
+                                                           "Taxonomic.Order" = "TAXONOMIC.ORDER"))
 
 # Step 3d: If the missing records are not in unvetted file, then they have been unconfirmed by reviewers
 unconfirmed_records <- anti_join (missing_records, ebd_unvetted, 
-                                                  by = c(`Submission ID` = "SAMPLING.EVENT.IDENTIFIER",
-                                                         "Taxonomic Order" = "TAXONOMIC.ORDER"))
+                                                  by = c(`Submission.ID` = "SAMPLING.EVENT.IDENTIFIER",
+                                                         "Taxonomic.Order" = "TAXONOMIC.ORDER"))
 
 
 ###############WRITING OUTPUTS##########################
@@ -314,8 +309,8 @@ f_problemChecklists <- problemChecklists %>%
                   rename(District = County,
                          Locality = Location,
                          Date = Date,
-                         State = `State/Province`,
-                         List = `Submission ID`)
+                         State = `State.Province`,
+                         List = `Submission.ID`)
 
 # Format: bad checklists
 f_bad_checklists <- bad_checklists %>%
@@ -335,18 +330,18 @@ f_bad_checklists <- bad_checklists %>%
          List = `Link to your eBird List`)
 
 f_missing_checklists <- missing_checklists %>% 
-  select (`Submission ID`, 
+  select (`Submission.ID`, 
           STATE, 
           COUNTY, 
           LOCALITY, 
           `OBSERVATION.DATE`, 
-          `Duration (Min)`)   %>%
-  rename(List = `Submission ID`,
+          `Duration..Min.`)   %>%
+  rename(List = `Submission.ID`,
          State = STATE,
          District = COUNTY,
          LocalityInEbird = LOCALITY,
          DateInEbird = OBSERVATION.DATE,
-         Duration = `Duration (Min)`)
+         Duration = `Duration..Min.`)
 
 
 f_unreviewed_records <- unreviewed_records %>%
@@ -358,8 +353,8 @@ f_unreviewed_records <- unreviewed_records %>%
             LOCALITY,
             COUNTY, 
             STATE,
-            `Submission ID`) %>% 
-    rename(List = `Submission ID`,
+            `Submission.ID`) %>% 
+    rename(List = `Submission.ID`,
              CommonName = COMMON.NAME,
              ScientificName = SCIENTIFIC.NAME,
              SubspeciesScientificName = SUBSPECIES.SCIENTIFIC.NAME,
@@ -372,19 +367,19 @@ f_unreviewed_records <- unreviewed_records %>%
 
 
 f_unconfirmed_records <- unconfirmed_records %>%
-  select (`Common Name`, 
-          `Scientific Name`,
+  select (`Common.Name`, 
+          `Scientific.Name`,
           Count,
           Date,
           Location,
           County, 
-          `State/Province`,
-          `Submission ID`) %>% 
-  rename(List = `Submission ID`,
-         CommonName = `Common Name`,
-         ScientificName = `Scientific Name`,
+          `State.Province`,
+          `Submission.ID`) %>% 
+  rename(List = `Submission.ID`,
+         CommonName = `Common.Name`,
+         ScientificName = `Scientific.Name`,
          Count = Count,
-         State = `State/Province`,
+         State = `State.Province`,
          District = County,
          LocalityInEbird = Location,
          DateInEbird = Date

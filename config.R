@@ -1,6 +1,6 @@
 ############################Configurations for scripts to merge eBird data from AWC and AWC forms#####################
 googleform <- "AWC India-ebird Wetland Assessment Form 2022 (Responses) - downloaded on 15April2025 (2).xlsx"
-myEbdFile <- "MyEBirdData.xlsx.zip"
+myEbdFile <- "MyEBirdData.csv"
 startYear <- 2021
 endYear <- 2022
 
